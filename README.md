@@ -1,25 +1,21 @@
-# mono-osint.py
-
-# 🕵️ Mono OSINT - Ultimate Edition
+# 🚀 Mono Ultimate Recon v5.0
 
 ![Python](https://img.shields.io/badge/Python-3.x-blue?style=for-the-badge&logo=python)
+![Type](https://img.shields.io/badge/Type-Reconnaissance-red?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-green?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-orange?style=for-the-badge)
 
-**Mono Ultimate** adalah alat *Open Source Intelligence* (OSINT) all-in-one yang dirancang untuk melakukan investigasi digital secara mendalam. Tools ini menggabungkan pencarian username, pelacakan identitas asli (Real Name), dan analisis nomor telepon dalam satu antarmuka CLI yang modern.
+**Mono Ultimate Recon** adalah suite *All-in-One* untuk audit keamanan (Security Auditing) dan *Reconnaissance*. Versi 5.0 ini telah dirombak total untuk fokus pada pencarian celah keamanan website dan infrastruktur jaringan.
 
-> *"Tools ini dibuat untuk mempermudah security researcher dalam melakukan reconnaissance."*
+> *"Tools ini dibuat khusus untuk edukasi dan membantu Security Researcher dalam tahap Information Gathering."*
 
-## 🔥 Fitur Revolusioner (v4.0)
+## 🔥 Fitur Utama (v5.0)
 
-| Fitur | Deskripsi |
+| Modul | Fungsi & Kemampuan |
 | :--- | :--- |
-| **👤 Username Profiler** | Melacak ketersediaan akun di **120+ situs** (Sosmed, Coding, Gaming, Dewasa) dengan sistem *Multi-threading* super cepat. |
-| **🧬 Real Name DNA** | **[BARU]** Melacak jejak digital berdasarkan **Nama Lengkap**. Mencari kebocoran CV (PDF), Skripsi, Data Kampus, dan LinkedIn secara spesifik. |
-| **📱 Phone Tracker** | **[BARU]** Melacak informasi Nomor HP (Provider, Negara, Timezone) dan mendeteksi akun WhatsApp/Telegram tanpa koneksi internet (Offline Database). |
-| **🔍 Dorking Arsenal** | Generator otomatis Google Dork untuk mencari password bocor, file konfigurasi, database, dan kamera CCTV. |
-| **🌍 IP & Domain Recon** | Melacak lokasi geografis (GeoIP), ISP, dan koordinat peta dari target IP Address. |
-| **📄 Auto Report** | Hasil scan otomatis tersimpan dalam format `.txt` yang rapi untuk dokumentasi. |
+| **🔍 Website Vuln Scanner** | Deteksi otomatis **CMS** (WordPress, Laravel, Joomla), mencari **File Sensitif** yang bocor (`.env`, `.git`, `backup.sql`), dan analisis **Security Headers**. |
+| **🌐 Subdomain Scanner** | Menemukan subdomain tersembunyi (seperti `admin.sekolah.sch.id`, `dev.target.com`) menggunakan teknik *multithreading* cepat. |
+| **🔌 Ninja Port Scanner** | Melakukan scanning pada port-port krusial (FTP, SSH, SQL, RDP) untuk melihat pintu masuk server yang terbuka. |
+| **👤 Username Profiler** | Melacak jejak digital username di **120+ platform** (Sosial Media, Coding, Gaming). |
 
 ## 🛠️ Instalasi
 
@@ -35,7 +31,6 @@ Pastikan kamu sudah menginstall **Python 3** dan **Git**.
     ```bash
     pip install -r requirements.txt
     ```
-    *(Library yang dibutuhkan: `requests`, `rich`, `phonenumbers`)*
 
 ## 🚀 Cara Penggunaan
 
