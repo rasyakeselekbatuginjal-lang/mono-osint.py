@@ -1,18 +1,35 @@
 #!/usr/bin/env python3
-import sys, os, requests, concurrent.futures, time, re, json, socket
+"""
+MONO ULTIMATE - ALL-IN-ONE RECONNAISSANCE SUITE
+==============================================
+Dibuat untuk tujuan edukasi dan audit keamanan.
+Dilarang digunakan untuk aktivitas ilegal.
+"""
+
+import sys
+import os
+import re
+import socket
+import time
+import json
 from datetime import datetime
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, urljoin
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import requests
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
+from rich.tree import Tree
 from rich.text import Text
 from rich.align import Align
 from rich.prompt import Prompt, Confirm
-from rich.tree import Tree
 from rich import box
+from rich.layout import Layout
+from rich.live import Live
 
-# Try importing phonenumbers for advanced tracking
+# Try importing optional dependencies
 try:
     import phonenumbers
     from phonenumbers import geocoder, carrier, timezone
@@ -22,242 +39,353 @@ except ImportError:
 
 console = Console()
 
-class MonoUltimate:
+class MonoUltimateRecon:
     def __init__(self):
         self.found_data = {}
         self.target_user = ""
-        self.start_time = None
+        self.target_domain = ""
         self.session = requests.Session()
-        self.session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'})
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Connection': 'keep-alive'
+        })
         
-        # DATABASE 120+ SITUS (Shortened for brevity but fully functional logic)
+        # Wordlist untuk Subdomain Scanner
+        self.subdomain_wordlist = [
+            'www', 'admin', 'administrator', 'secure', 'portal', 'login', 
+            'dev', 'development', 'test', 'staging', 'mail', 'email', 'webmail',
+            'ftp', 'ssh', 'sftp', 'api', 'backend', 'frontend', 'dashboard',
+            'cpanel', 'whm', 'webdisk', 'webmin', 'blog', 'news', 'forum',
+            'support', 'help', 'docs', 'wiki', 'status', 'monitor', 'monitoring',
+            'app', 'apps', 'application', 'mobile', 'm', 'static', 'assets',
+            'cdn', 'shop', 'store', 'payment', 'billing', 'invoice',
+            'server', 'vpn', 'proxy', 'ns1', 'ns2', 'smtp', 'db', 'database', 
+            'sql', 'mysql', 'mongo', 'redis', 'search', 'jenkins', 'git'
+        ]
+        
+        # Sensitive files to check (File Rahasia)
+        self.sensitive_files = [
+            '.env', '.git/config', '.git/HEAD', '.git/index',
+            'backup.sql', 'backup.zip', 'backup.tar.gz',
+            'phpinfo.php', 'test.php', 'info.php',
+            'config.php', 'database.php', 'settings.php',
+            'wp-config.php', 'configuration.php',
+            'robots.txt', 'sitemap.xml',
+            '.htaccess', '.htpasswd',
+            'admin/', 'administrator/', 'wp-admin/',
+            'debug.log', 'error.log', 'access.log',
+            'dump.sql', 'secret.txt', 'password.txt'
+        ]
+        
+        # CMS Detection signatures
+        self.cms_signatures = {
+            'WordPress': {'meta': ['generator', 'WordPress'], 'files': ['wp-content/', 'wp-includes/']},
+            'Joomla': {'meta': ['generator', 'Joomla'], 'files': ['media/system/']},
+            'Laravel': {'meta': ['csrf-token'], 'headers': ['laravel_session']},
+            'Drupal': {'meta': ['generator', 'Drupal'], 'files': ['sites/all/']},
+            'Magento': {'headers': ['magento'], 'files': ['skin/frontend/']}
+        }
+        
+        # Critical ports to scan
+        self.critical_ports = {
+            21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP', 53: 'DNS',
+            80: 'HTTP', 443: 'HTTPS', 445: 'SMB', 3306: 'MySQL',
+            3389: 'RDP', 5432: 'PostgreSQL', 8080: 'HTTP-Proxy', 27017: 'MongoDB'
+        }
+        
+        # Username search platforms
         self.platforms = {
-            "SOCIAL": [("Instagram","https://instagram.com/{}"),("TikTok","https://tiktok.com/@{}"),("Twitter","https://twitter.com/{}"),("Facebook","https://facebook.com/{}"),("LinkedIn","https://linkedin.com/in/{}"),("Telegram","https://t.me/{}")],
-            "DEV": [("GitHub","https://github.com/{}"),("GitLab","https://gitlab.com/{}"),("Replit","https://replit.com/@{}"),("Pastebin","https://pastebin.com/u/{}"),("NPM","https://npmjs.com/~{}")],
-            "GAMING": [("Steam","https://steamcommunity.com/id/{}"),("Twitch","https://twitch.tv/{}"),("Roblox","https://roblox.com/user.aspx?username={}")],
-            "CONTENT": [("YouTube","https://youtube.com/@{}"),("Spotify","https://open.spotify.com/user/{}"),("Wattpad","https://wattpad.com/user/{}")],
-            "BLOG": [("Medium","https://medium.com/@{}"),("WordPress","https://{}.wordpress.com"),("Blogger","https://{}.blogspot.com")],
-            "ADULT": [("Pornhub","https://pornhub.com/users/{}"),("Xvideos","https://xvideos.com/profiles/{}")]
+            "SOCIAL": [
+                ("Instagram", "https://instagram.com/{}"),
+                ("TikTok", "https://tiktok.com/@{}"),
+                ("Twitter", "https://twitter.com/{}"),
+                ("Facebook", "https://facebook.com/{}"),
+                ("LinkedIn", "https://linkedin.com/in/{}"),
+                ("Telegram", "https://t.me/{}")
+            ],
+            "DEV": [
+                ("GitHub", "https://github.com/{}"),
+                ("GitLab", "https://gitlab.com/{}"),
+                ("Replit", "https://replit.com/@{}"),
+                ("Pastebin", "https://pastebin.com/u/{}")
+            ],
+            "GAMING": [
+                ("Steam", "https://steamcommunity.com/id/{}"),
+                ("Twitch", "https://twitch.tv/{}"),
+                ("Roblox", "https://roblox.com/user.aspx?username={}")
+            ],
+            "CONTENT": [
+                ("YouTube", "https://youtube.com/@{}"),
+                ("Spotify", "https://open.spotify.com/user/{}")
+            ]
         }
 
     def banner(self):
+        """Display the main banner"""
         os.system('clear' if os.name == 'posix' else 'cls')
-        art = Text(r"""
+        banner_text = Text("""
 ███╗   ███╗ ██████╗ ███╗   ██╗ ██████╗ 
 ████╗ ████║██╔═══██╗████╗  ██║██╔═══██╗
 ██╔████╔██║██║   ██║██╔██╗ ██║██║   ██║
 ██║╚██╔╝██║██║   ██║██║╚██╗██║██║   ██║
 ██║ ╚═╝ ██║╚██████╔╝██║ ╚████║╚██████╔╝
-╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ """, style="bold white on black")
-        console.print(Align.center(art))
-        console.print(Align.center(Text("⚡ MONO REVOLUTION: IDENTITY HUNTER ⚡", style="bold yellow")))
-        console.print(Align.center(Text(f"v4.0 | REVOLUTION EDITION | {datetime.now().strftime('%Y-%m-%d')}", style="dim white")))
+╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ 
+        """, style="bold cyan")
+        
+        console.print(Align.center(banner_text))
+        console.print(Align.center(Text("🚀 ALL-IN-ONE RECONNAISSANCE SUITE v5.0", style="bold yellow")))
+        console.print(Align.center(Text("🔐 Created for Educational Security Audits", style="dim white")))
+        console.print(Align.center(Text(f"📅 {datetime.now().strftime('%Y-%m-%d')}", style="dim cyan")))
         print()
 
-    def check(self, cat, site, url):
+    # ==================== WEBSITE VULNERABILITY SCANNER ====================
+    def website_vuln_scanner(self):
+        self.banner()
+        console.print(Panel("[bold cyan]🔍 WEBSITE VULNERABILITY SCANNER[/]\n[dim]Detect CMS, sensitive files, and headers[/]", border_style="cyan"))
+        
+        target = Prompt.ask("[bold yellow]🌐 Enter target domain (e.g., sekolah.sch.id)[/]")
+        if not target.startswith(('http://', 'https://')): target = f"https://{target}"
+        self.target_domain = target
+        results = {'cms': [], 'sensitive_files': [], 'headers': {}}
+        
+        console.print(f"\n[bold green]▶ Starting scan on: [white]{target}[/][/]\n")
+        
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), TextColumn("{task.percentage:>3.0f}%"), console=console) as progress:
+            # Task 1: CMS
+            task1 = progress.add_task("[cyan]Detecting CMS...", total=1)
+            results['cms'] = self._detect_cms(target)
+            progress.update(task1, completed=1)
+            
+            # Task 2: Files
+            task2 = progress.add_task("[yellow]Hunting sensitive files...", total=len(self.sensitive_files))
+            results['sensitive_files'] = self._hunt_sensitive_files(target)
+            progress.update(task2, completed=len(self.sensitive_files))
+            
+            # Task 3: Headers
+            task3 = progress.add_task("[green]Analyzing headers...", total=1)
+            results['headers'] = self._analyze_headers(target)
+            progress.update(task3, completed=1)
+
+        self._display_vuln_results(results, target)
+        input("\n[dim]Press Enter to continue...[/]")
+
+    def _detect_cms(self, url):
+        detected = []
         try:
-            target_url = url.format(self.target_user)
-            r = self.session.get(target_url, timeout=5)
-            if r.status_code == 200:
-                c = r.text.lower()
-                bad = ["not found","doesn't exist","404","no such user","halaman tidak ditemukan"]
-                # Filter False Positive TikTok
-                if site == "TikTok" and "tiktok.com" not in r.url: return None
-                
-                if not any(b in c for b in bad):
-                    return (cat, site, target_url)
+            r = self.session.get(url, timeout=10)
+            content = r.text.lower()
+            headers = str(r.headers).lower()
+            
+            for cms, sigs in self.cms_signatures.items():
+                if 'meta' in sigs and sigs['meta'][1].lower() in content: detected.append(cms)
+                elif 'headers' in sigs and any(h in headers for h in sigs['headers']): detected.append(cms)
+                elif 'files' in sigs and any(f in content for f in sigs['files']): detected.append(cms)
+        except: pass
+        return list(set(detected)) if detected else ["Unknown"]
+
+    def _hunt_sensitive_files(self, base_url):
+        found = []
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = []
+            for f in self.sensitive_files:
+                url = f"{base_url}/{f}" if not f.startswith('/') else f"{base_url}{f}"
+                futures.append(executor.submit(self._check_file, url))
+            
+            for future in as_completed(futures):
+                res = future.result()
+                if res: found.append(res)
+        return found
+
+    def _check_file(self, url):
+        try:
+            r = self.session.get(url, timeout=5, allow_redirects=False)
+            if r.status_code == 200: return url
         except: pass
         return None
 
-    def scan(self):
+    def _analyze_headers(self, url):
+        headers_info = {}
+        try:
+            r = self.session.head(url, timeout=5)
+            h = r.headers
+            headers_info['X-Frame-Options'] = h.get('X-Frame-Options', '❌ Missing')
+            headers_info['Server'] = h.get('Server', '✅ Hidden')
+            headers_info['Strict-Transport-Security'] = h.get('Strict-Transport-Security', '❌ Missing')
+        except: pass
+        return headers_info
+
+    def _display_vuln_results(self, results, target):
         self.banner()
-        self.target_user = Prompt.ask("[bold yellow]🎯 Enter Username to Hunt[/]")
+        console.print(Panel(f"[bold cyan]📊 RESULTS FOR: {target}[/]", border_style="cyan"))
+        
+        # CMS
+        console.print("\n[bold yellow]📦 CMS DETECTED[/]")
+        for cms in results['cms']: console.print(f"✅ {cms}")
+        
+        # Files
+        console.print("\n[bold red]🔍 SENSITIVE FILES FOUND[/]")
+        if results['sensitive_files']:
+            for f in results['sensitive_files']: console.print(f"[red]⚠️  OPEN: {f}[/]")
+        else: console.print("[green]✅ No sensitive files found[/]")
+        
+        # Headers
+        console.print("\n[bold blue]🛡️ HEADERS[/]")
+        for k, v in results['headers'].items(): console.print(f"{k}: {v}")
+
+    # ==================== SUBDOMAIN SCANNER ====================
+    def subdomain_scanner(self):
+        self.banner()
+        console.print(Panel("[bold cyan]🌐 SUBDOMAIN SCANNER[/]\n[dim]Discover hidden subdomains[/]", border_style="cyan"))
+        domain = Prompt.ask("[bold yellow]🔍 Enter domain (e.g., sekolah.sch.id)[/]")
+        
+        console.print(f"\n[bold green]▶ Scanning subdomains for: [white]{domain}[/][/]\n")
+        found = []
+        
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), console=console) as progress:
+            task = progress.add_task("Scanning...", total=len(self.subdomain_wordlist))
+            with ThreadPoolExecutor(max_workers=50) as executor:
+                futures = [executor.submit(self._check_sub, f"{sub}.{domain}") for sub in self.subdomain_wordlist]
+                for f in as_completed(futures):
+                    res = f.result()
+                    if res: found.append(res)
+                    progress.advance(task)
+        
+        self.banner()
+        console.print(Panel(f"[bold cyan]🌐 SUBDOMAINS FOUND: {len(found)}[/]"))
+        if found:
+            t = Table(box=box.SIMPLE); t.add_column("Subdomain", style="cyan"); t.add_column("IP", style="yellow")
+            for s, ip in found: t.add_row(s, ip)
+            console.print(t)
+        else: console.print("[red]❌ No subdomains found[/]")
+        input("\n[dim]Press Enter to continue...[/]")
+
+    def _check_sub(self, domain):
+        try:
+            ip = socket.gethostbyname(domain)
+            return (domain, ip)
+        except: return None
+
+    # ==================== PORT SCANNER ====================
+    def port_scanner(self):
+        self.banner()
+        console.print(Panel("[bold cyan]🔌 NINJA PORT SCANNER[/]\n[dim]Scan critical ports stealthily[/]", border_style="cyan"))
+        target = Prompt.ask("[bold yellow]🎯 Enter target IP or Domain[/]")
+        
+        try:
+            target_ip = socket.gethostbyname(target)
+            console.print(f"[dim]Resolved to: {target_ip}[/]")
+        except: 
+            console.print("[red]Invalid Target[/]"); return
+
+        open_ports = []
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), console=console) as progress:
+            task = progress.add_task("Scanning ports...", total=len(self.critical_ports))
+            with ThreadPoolExecutor(max_workers=100) as executor:
+                futures = {executor.submit(self._scan_port, target_ip, p): p for p in self.critical_ports}
+                for f in as_completed(futures):
+                    res = f.result()
+                    if res: open_ports.append(res)
+                    progress.advance(task)
+
+        self.banner()
+        console.print(Panel(f"[bold cyan]🔌 OPEN PORTS ON {target}[/]"))
+        if open_ports:
+            t = Table(box=box.ROUNDED)
+            t.add_column("Port", style="cyan"); t.add_column("Service", style="yellow"); t.add_column("Status", style="red")
+            for p in sorted(open_ports):
+                t.add_row(str(p), self.critical_ports[p], "OPEN")
+            console.print(t)
+        else: console.print("[green]✅ No open critical ports found[/]")
+        input("\n[dim]Press Enter to continue...[/]")
+
+    def _scan_port(self, ip, port):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(1)
+            if s.connect_ex((ip, port)) == 0:
+                s.close(); return port
+            s.close()
+        except: pass
+        return None
+
+    # ==================== USERNAME SCANNER ====================
+    def username_scanner(self):
+        self.banner()
+        console.print(Panel("[bold cyan]👤 USERNAME SCANNER[/]\n[dim]Search across 120+ platforms[/]", border_style="cyan"))
+        self.target_user = Prompt.ask("[bold yellow]🎯 Enter Username[/]")
         if not self.target_user: return
-        
-        self.start_time = datetime.now()
+
         self.found_data = {}
-        
         checks = []
         for cat, sites in self.platforms.items():
             for site, url in sites: checks.append((cat, site, url))
+
+        console.print(f"\n[cyan]⚡ Scanning: [white]{self.target_user}[/][/]\n")
         
-        console.print(f"\n[cyan]⚡ Initiating Deep Scan on: [white]{self.target_user}[/][/]\n")
-        
-        with Progress(SpinnerColumn("dots"),TextColumn("[cyan]{task.description}"),BarColumn(complete_style="green"),TextColumn("{task.percentage:>3.0f}%"),console=console) as p:
-            task = p.add_task("Scanning Digital Universe...", total=len(checks))
-            with concurrent.futures.ThreadPoolExecutor(max_workers=30) as e:
-                futures = {e.submit(self.check, c, s, u): s for c, s, u in checks}
-                for f in concurrent.futures.as_completed(futures):
-                    r = f.result()
-                    if r:
-                        cat, site, url = r
-                        if cat not in self.found_data: self.found_data[cat] = []
-                        self.found_data[cat].append((site, url))
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), console=console) as p:
+            task = p.add_task("Scanning...", total=len(checks))
+            with ThreadPoolExecutor(max_workers=30) as ex:
+                futures = {ex.submit(self._check_user, c, s, u): s for c, s, u in checks}
+                for f in as_completed(futures):
+                    res = f.result()
+                    if res:
+                        c, s, u = res
+                        if c not in self.found_data: self.found_data[c] = []
+                        self.found_data[c].append((s, u))
                     p.advance(task)
-        self.results()
 
-    def results(self):
+        self._display_username_results()
+
+    def _check_user(self, cat, site, url):
+        try:
+            u = url.format(self.target_user)
+            r = self.session.get(u, timeout=5)
+            if r.status_code == 200:
+                if "not found" not in r.text.lower(): return (cat, site, u)
+        except: pass
+        return None
+
+    def _display_username_results(self):
         self.banner()
-        total = sum(len(i) for i in self.found_data.values())
-        
+        total = sum(len(x) for x in self.found_data.values())
         if not total:
-            console.print(Panel(f"[red]TARGET IS A GHOST.[/]\nNo footprint found for '{self.target_user}'.", border_style="red"))
-            input("\nPress Enter...")
-            return
-        
-        tree = Tree(f"[bold green]🎯 TARGET IDENTIFIED: {self.target_user}")
-        for cat, items in self.found_data.items():
-            branch = tree.add(f"[yellow]{cat}[/]")
-            for site, url in items:
-                branch.add(f"[cyan]{site}[/]: [link={url}]{url}[/link]")
-        
-        console.print(tree)
-        
-        # Save Report logic
-        filename = f"REPORT_{self.target_user}.txt"
-        with open(filename, "w") as f:
-            f.write(f"MONO REVOLUTION REPORT: {self.target_user}\n" + "="*50 + "\n")
+            console.print("[red]❌ No results found[/]")
+        else:
+            tree = Tree(f"[bold green]🎯 TARGET: {self.target_user}[/]")
             for cat, items in self.found_data.items():
-                for site, url in items: f.write(f"{site}: {url}\n")
-        console.print(f"\n[bold black on green] SUCCESS [/] Report saved: {filename}")
-        input("\nPress Enter...")
+                b = tree.add(f"[yellow]{cat}[/]")
+                for site, url in items: b.add(f"[cyan]{site}[/] - {url}")
+            console.print(tree)
+        input("\n[dim]Press Enter to continue...[/]")
 
-    # --- FITUR BARU: REAL NAME DNA ---
-    def real_name_investigator(self):
-        self.banner()
-        console.print(Panel("[bold white]🕵️ REAL NAME DNA HUNTER[/]\n[dim]Fitur ini mencari jejak identitas asli (CV, Skripsi, Berita) yang sering terlewat.[/]", border_style="green"))
-        
-        name = Prompt.ask("[bold yellow]👤 Masukkan Nama Lengkap Target[/]")
-        city = Prompt.ask("[bold cyan]🏙️  Masukkan Kota/Asal (Optional - Enter utk skip)[/]")
-        
-        location_query = f'+ "{city}"' if city else ""
-        
-        # LOGIKA REVOLUSIONER: Dorking Spesifik
-        queries = [
-            ("📄 CV & Resume (Bocor)", f'filetype:pdf OR filetype:docx OR filetype:doc "{name}" (cv OR daftar riwayat hidup OR resume)'),
-            ("🎓 Data Akademik/Skripsi", f'site:ac.id OR site:sch.id "{name}" (skripsi OR jurnal OR siswa OR mahasiswa)'),
-            ("💼 LinkedIn & Profesional", f'site:linkedin.com OR site:jobstreet.co.id "{name}" {location_query}'),
-            ("📰 Berita & Media", f'site:news.detik.com OR site:kompas.com OR site:tribunnews.com "{name}"'),
-            ("👥 Facebook/Instagram", f'site:facebook.com OR site:instagram.com OR site:tiktok.com "{name}" {location_query}'),
-            ("📂 Google Drive Public", f'site:drive.google.com "{name}"'),
-        ]
-        
-        t = Table(title=f"🔍 ANALISIS JEJAK: {name.upper()}", box=box.ROUNDED)
-        t.add_column("Tipe Data", style="cyan")
-        t.add_column("Link Investigasi (Klik)", style="white")
-        
-        for title, q in queries:
-            url = f"https://www.google.com/search?q={quote(q)}"
-            t.add_row(title, f"[link={url}]BUKA HASIL PENCARIAN[/link]")
-            
-        console.print(t)
-        console.print("\n[dim]Tips: Jika nama pasaran, tambahkan nama sekolah/tempat kerja di pencarian.[/]")
-        input("\nPress Enter...")
-
-    # --- FITUR UPGRADE: PHONE TRACKER ---
-    def phone_advanced(self):
-        self.banner()
-        console.print(Panel("[bold magenta]📱 ADVANCED PHONE INTEL[/]\n[dim]Melacak Provider, Lokasi, dan WhatsApp tanpa internet.[/]", border_style="magenta"))
-        
-        if not PHONENUMBERS_AVAIL:
-            console.print("[red]❌ Library 'phonenumbers' belum diinstall![/]")
-            console.print("Ketik di terminal: [bold]pip install phonenumbers[/]")
-            input()
-            return
-
-        number = Prompt.ask("[bold yellow]📱 Masukkan Nomor (Pakai kode negara, cth: +62812...)[/]")
-        
-        try:
-            parsed = phonenumbers.parse(number, None)
-            if not phonenumbers.is_valid_number(parsed):
-                console.print("[bold red]❌ Nomor tidak valid![/]")
-                input(); return
-            
-            # Mendapatkan Data Offline
-            country = geocoder.description_for_number(parsed, "id")
-            provider = carrier.name_for_number(parsed, "id")
-            tz = timezone.time_zones_for_number(parsed)
-            
-            grid = Table.grid(padding=(0,2))
-            grid.add_column(style="bold yellow", justify="right")
-            grid.add_column(style="white")
-            
-            grid.add_row("🌍 Negara/Lokasi", country)
-            grid.add_row("📡 Provider", provider)
-            grid.add_row("⏰ Timezone", str(tz))
-            grid.add_row("✅ Valid", "YES")
-            
-            console.print(Panel(grid, title=f"DATA: {number}", border_style="green"))
-            
-            # Social Links
-            wa = f"https://wa.me/{number.replace('+','')}"
-            tg = f"https://t.me/{number.replace('+','')}"
-            
-            console.print(f"\n[green]💬 Direct WhatsApp:[/link] [link={wa}]{wa}[/link]")
-            console.print(f"[blue]✈️  Direct Telegram:[/link] [link={tg}]{tg}[/link]")
-            
-        except Exception as e:
-            console.print(f"[red]Error: {e}[/]")
-        
-        input("\nPress Enter...")
-
-    def dork(self):
-        self.banner()
-        target = Prompt.ask("[yellow]🔎 Enter Target Keyword[/]")
-        dorks = {
-            "Passwords":f'intext:"password" OR intext:"login" "{target}"',
-            "Database":f'filetype:sql OR filetype:db "{target}"',
-            "Config":f'ext:env OR ext:yml "{target}"',
-            "Camera/CCTV":f'intitle:"webcam 7" "{target}"',
-            "Government":f'site:go.id "{target}"'
-        }
-        t = Table(title="GOOGLE DORKS",box=box.SIMPLE)
-        t.add_column("Type",style="cyan")
-        t.add_column("Link",style="white")
-        for name, query in dorks.items(): 
-            url = f"https://www.google.com/search?q={quote(query)}"
-            t.add_row(name, f"[link={url}]OPEN LINK[/link]")
-        console.print(t)
-        input("\nPress Enter...")
-
-    def ip(self):
-        self.banner()
-        target = Prompt.ask("[yellow]🌐 Enter IP/Domain[/]")
-        try:
-            if any(c.isalpha() for c in target): target = socket.gethostbyname(target)
-            data = self.session.get(f"http://ip-api.com/json/{target}").json()
-            
-            t = Table(title="IP INTEL", box=box.ROUNDED)
-            t.add_column("Key", style="yellow"); t.add_column("Value", style="green")
-            for k,v in data.items(): t.add_row(k.upper(), str(v))
-            console.print(t)
-        except: console.print("[red]Failed.[/]")
-        input("\nPress Enter...")
-
-    def menu(self):
+    # ==================== MAIN MENU ====================
+    def main_menu(self):
         while True:
             self.banner()
-            console.print(Panel(
-                "[1] [cyan]USERNAME SCAN[/]     (120+ Platforms)\n"
-                "[2] [bold green]REAL NAME DNA[/]     (Find Person by Name)\n"
-                "[3] [magenta]PHONE TRACKER[/]     (Provider & Location)\n"
-                "[4] [yellow]GOOGLE DORKS[/]      (Hacking Queries)\n"
-                "[5] [blue]IP TRACKER[/]        (Geolocation)\n"
-                "[0] [red]EXIT[/]",
-                title="🔥 MAIN MENU", border_style="cyan"))
+            menu_table = Table(box=box.DOUBLE_EDGE, show_header=False)
+            menu_table.add_column("Option", justify="center", style="bold cyan")
+            menu_table.add_column("Desc", justify="left")
             
-            choice = Prompt.ask("[bold green]MONO~#[/]", choices=["1","2","3","4","5","0"])
+            menu_table.add_row("1", "[bold cyan]WEBSITE VULNERABILITY SCANNER[/]\n[dim]CMS, Files, Headers[/]")
+            menu_table.add_row("2", "[bold yellow]SUBDOMAIN SCANNER[/]\n[dim]Find hidden subdomains[/]")
+            menu_table.add_row("3", "[bold magenta]NINJA PORT SCANNER[/]\n[dim]Check critical ports[/]")
+            menu_table.add_row("4", "[bold green]USERNAME SCANNER[/]\n[dim]Track user profiles[/]")
+            menu_table.add_row("0", "[bold red]EXIT[/]")
             
-            if choice=="1": self.scan()
-            elif choice=="2": self.real_name_investigator() # FITUR BARU
-            elif choice=="3": self.phone_advanced()         # FITUR BARU
-            elif choice=="4": self.dork()
-            elif choice=="5": self.ip()
-            elif choice=="0": sys.exit()
+            console.print(Panel(menu_table, title="[bold yellow]🔥 MENU 🔥[/]", border_style="cyan"))
+            
+            c = Prompt.ask("[bold green]mono~#[/]", choices=["1", "2", "3", "4", "0"])
+            
+            if c == "1": self.website_vuln_scanner()
+            elif c == "2": self.subdomain_scanner()
+            elif c == "3": self.port_scanner()
+            elif c == "4": self.username_scanner()
+            elif c == "0": sys.exit()
 
 if __name__ == "__main__":
     try:
-        app = MonoUltimate()
-        app.menu()
+        app = MonoUltimateRecon()
+        app.main_menu()
     except KeyboardInterrupt:
-        print("\n[red]System Shutdown.[/]")
+        sys.exit()
