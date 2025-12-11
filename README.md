@@ -23,7 +23,7 @@ Pastikan kamu sudah menginstall **Python 3** dan **Git**.
 
 1.  **Clone repository ini:**
     ```bash
-    git clone [https://github.com/rasyakeselekbatuginjal-lang/mono-osint.py.git](https://github.com/rasyakeselekbatuginjal-lang/mono-osint.py.git)
+    git clone https://github.com/rasyakeselekbatuginjal-lang/mono-osint.py
     cd mono-osint.py
     ```
 
